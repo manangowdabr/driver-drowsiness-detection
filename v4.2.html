@@ -1,0 +1,1232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Horizon Drive — Final Integrated Simulator</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 50%, #7e22ce 100%);
+            overflow: hidden;
+            height: 100vh;
+        }
+
+        #gameContainer {
+            position: relative;
+            width: 100%;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #gameCanvas {
+            border: 4px solid #fff;
+            border-radius: 12px;
+            box-shadow: 0 15px 50px rgba(0,0,0,0.5);
+            background: #87CEEB;
+        }
+
+        #videoElement {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            width: 180px;
+            height: 135px;
+            border: 3px solid #fff;
+            border-radius: 8px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+            transform: scaleX(-1);
+            z-index: 10;
+            background: #000;
+        }
+
+        /* ── STATUS PANEL ── */
+        #statusPanel {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            background: rgba(15,15,30,0.92);
+            padding: 14px;
+            border-radius: 14px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.5);
+            min-width: 250px;
+            z-index: 10;
+            border: 1px solid rgba(255,255,255,0.12);
+            color: #fff;
+            font-size: 13px;
+        }
+
+        .driver-info {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 9px 12px;
+            border-radius: 9px;
+            margin-bottom: 10px;
+            text-align: center;
+            font-weight: bold;
+            font-size: 15px;
+        }
+
+        .status-item { margin: 8px 0; }
+        .status-label { font-weight: 600; color: rgba(255,255,255,0.55); font-size: 11px; display: block; margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.05em; }
+        .status-value { font-size: 16px; font-weight: 600; color: #fff; }
+
+        .badge-row { display: flex; gap: 6px; flex-wrap: wrap; }
+        #eyeStatus, #yawnStatus {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 7px;
+            font-weight: bold;
+            font-size: 12px;
+        }
+        .status-ok { background: #1a5c2a; color: #4ade80; }
+        .status-alert { background: #5c1a1a; color: #f87171; animation: blink-alert 0.5s infinite; }
+        @keyframes blink-alert { 0%,100%{opacity:1} 50%{opacity:0.6} }
+
+        #fatigueScore { font-size: 22px; font-weight: bold; color: #4ade80; transition: color 0.3s; }
+
+        #drowsinessBar { width:100%; height:20px; background:rgba(255,255,255,0.1); border-radius:12px; overflow:hidden; margin-top:5px; }
+        #drowsinessProgress { height:100%; background:linear-gradient(90deg,#4ade80,#facc15,#f87171); transition:width 0.1s; width:0%; }
+
+        #engineMessage {
+            margin-top: 10px;
+            padding: 8px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: bold;
+            text-align: center;
+            background: rgba(255,255,255,0.05);
+            color: #a5b4fc;
+            min-height: 32px;
+        }
+        .msg-warning { background: rgba(250,204,21,0.2) !important; color: #fde68a !important; border: 1px solid rgba(250,204,21,0.4); }
+        .msg-critical { background: rgba(239,68,68,0.2) !important; color: #fca5a5 !important; border: 1px solid rgba(239,68,68,0.4); animation: pRed 1s infinite; }
+        .msg-emergency { background: #dc2626 !important; color: white !important; font-size: 13px !important; animation: pRed 0.5s infinite; }
+        @keyframes pRed { 0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,0.5)} 50%{box-shadow:0 0 0 6px rgba(239,68,68,0)} }
+
+        /* ── BLINK & YAWN MONITOR PANEL ── */
+        #blinkPanel {
+            position: absolute;
+            bottom: 15px;
+            right: 15px;
+            background: rgba(15,15,30,0.92);
+            padding: 14px;
+            border-radius: 14px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.5);
+            min-width: 250px;
+            z-index: 10;
+            border: 1px solid rgba(255,255,255,0.12);
+            color: #fff;
+            font-size: 13px;
+        }
+
+        .blink-section-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(255,255,255,0.5); margin-bottom: 8px; }
+        .window-tab { display: inline-block; padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; margin: 2px; cursor: default; background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.5); border: 1px solid transparent; transition: all 0.3s; }
+        .window-tab.active { background: rgba(99,102,241,0.35); color: #a5b4fc; border-color: #6366f1; }
+        .window-tab.calibrating { background: rgba(250,204,21,0.25); color: #fde68a; border-color: #facc15; animation: calPulse 1s infinite; }
+        @keyframes calPulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
+        
+        .blink-metric-row { display:flex; justify-content:space-between; align-items:center; margin:5px 0; }
+        .blink-metric-label { font-size:11px; color:rgba(255,255,255,0.5); }
+        .blink-metric-val { font-size:14px; font-weight:700; color:#fff; }
+        .calibration-bar { height:6px; border-radius:3px; background:rgba(255,255,255,0.1); margin-top:4px; overflow:hidden; }
+        .calibration-fill { height:100%; background:linear-gradient(90deg,#6366f1,#a5b4fc); transition:width 0.3s; width:0%; border-radius:3px; }
+
+        /* ── GAMEPAD HUD ── */
+        #gamepadHud {
+            position: absolute;
+            bottom: 15px;
+            left: 15px;
+            background: rgba(15,15,30,0.85);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            padding: 10px 14px;
+            z-index: 10;
+            color: #fff;
+            font-size: 12px;
+            min-width: 180px;
+        }
+        #gamepadHud .gp-title { font-size:11px; color:rgba(255,255,255,0.5); font-weight:700; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:7px; }
+        .gp-status { display:flex; align-items:center; gap:6px; margin:4px 0; font-size:12px; }
+        .gp-dot { width:8px; height:8px; border-radius:50%; }
+        .gp-dot.connected { background:#4ade80; box-shadow:0 0 6px #4ade80; }
+        .gp-dot.disconnected { background:#6b7280; }
+        .gp-bar-wrap { background:rgba(255,255,255,0.1); border-radius:3px; height:8px; width:100%; margin-top:4px; overflow:hidden; }
+        .gp-bar { height:100%; border-radius:3px; background:linear-gradient(90deg,#60a5fa,#a78bfa); transition:width 0.05s; width:0%; }
+
+        /* ── CALIBRATION SPLASH ── */
+        #calibrationSplash {
+            position: absolute; 
+            top: 50%; 
+            left: 50%; 
+            transform: translate(-50%, -50%); 
+            background: rgba(10,10,25,0.93); border: 2px solid #6366f1;
+            border-radius: 12px; padding: 16px 20px; text-align: center;
+            color: #fff; z-index: 20; min-width: 250px;
+            box-shadow: 0 0 20px rgba(99,102,241,0.4);
+            display: none;
+        }
+        #calibrationSplash h2 { font-size:16px; color:#a5b4fc; margin-bottom:6px; }
+        #calibrationSplash p { color:rgba(255,255,255,0.7); font-size:11px; margin-bottom:12px; }
+        #calCountdown { font-size:32px; font-weight:800; color:#6366f1; }
+        #calWindowLabel { font-size:12px; color:#fde68a; font-weight:600; margin-bottom:6px; }
+
+        /* ── DATABASE UI STYLES ── */
+        #driverSelect { 
+            width: 100%; padding: 13px; font-size: 16px; border: 2px solid #667eea; 
+            border-radius: 9px; background: #fff; color: #333; font-weight: 600; 
+            text-align: center; outline: none; margin-bottom: 12px; cursor: pointer;
+        }
+        #driverSelect:focus { border-color: #FFD700; box-shadow: 0 0 12px rgba(255,215,0,0.4); }
+
+        #driverStatsPreview {
+            background: rgba(15,15,30,0.6); border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 9px; padding: 12px; margin-bottom: 12px;
+            color: #fff; font-size: 13px; text-align: left; display: none;
+        }
+        .ds-row { display: flex; justify-content: space-between; margin: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 4px; }
+        .ds-val { font-weight: bold; color: #a5b4fc; }
+        .ds-rating { font-size: 16px; color: #FFD700; text-align: center; margin-top: 8px; font-weight: bold; }
+
+        .secondary-btn { 
+            margin-top: 12px; padding: 12px 30px; font-size: 16px; 
+            background: rgba(255,255,255,0.1); color: #fff; 
+            border: 2px solid rgba(255,255,255,0.2); border-radius: 50px; 
+            cursor: pointer; transition: all 0.3s; font-weight: bold; width: 100%;
+        }
+        .secondary-btn:hover { background: rgba(255,255,255,0.2); border-color: #fff; }
+
+        /* ── MODALS & SCREENS ── */
+        #statsModal { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            background: rgba(0,0,0,0.85); display: flex; justify-content: center; 
+            align-items: center; z-index: 200; backdrop-filter: blur(5px); 
+        }
+        .stats-modal-content { 
+            background: #1e1e2f; border: 1px solid #667eea; border-radius: 14px; 
+            padding: 24px; width: 90%; max-width: 600px; max-height: 80%; 
+            overflow-y: auto; color: #fff; position: relative; 
+        }
+        #closeStatsBtn { position: absolute; top: 15px; right: 20px; font-size: 28px; cursor: pointer; color: #a5b4fc; transition: color 0.2s; }
+        #closeStatsBtn:hover { color: #fff; }
+        .stats-modal-content h2 { text-align: center; color: #FFD700; margin-bottom: 20px; }
+        .driver-record-card { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 16px; border-radius: 9px; margin-bottom: 12px; }
+        .driver-record-card h3 { color: #60a5fa; margin-bottom: 8px; display: flex; justify-content: space-between; }
+
+        #startScreen {
+            position:absolute; top:0; left:0; width:100%; height:100%;
+            background:linear-gradient(135deg,rgba(0,0,0,0.95),rgba(30,60,114,0.95));
+            display:flex; flex-direction:column; justify-content:center; align-items:center;
+            z-index:100; overflow-y:auto; padding:20px;
+        }
+        #startScreen h1 { color:#fff; font-size:48px; margin-bottom:10px; text-shadow:0 0 20px rgba(126,34,206,0.8); animation:glow 2s ease-in-out infinite; }
+        @keyframes glow { 0%,100%{text-shadow:0 0 20px rgba(126,34,206,0.8)} 50%{text-shadow:0 0 35px rgba(126,34,206,1)} }
+        .subtitle { color:#FFD700; font-size:20px; margin-bottom:20px; text-shadow:2px 2px 4px rgba(0,0,0,0.7); }
+
+        .feature-list { background:rgba(255,255,255,0.08); padding:16px 24px; border-radius:14px; margin:16px 0; backdrop-filter:blur(10px); max-width:680px; width:100%; }
+        .feature-item { color:#fff; font-size:14px; margin:8px 0; display:flex; align-items:center; gap:10px; }
+
+        .name-input-container { margin:18px 0; background:rgba(255,255,255,0.1); padding:24px 32px; border-radius:14px; backdrop-filter:blur(10px); max-width:500px; width:100%; }
+        .name-input-container label { color:#fff; font-size:18px; font-weight:bold; display:block; margin-bottom:12px; }
+        #driverNameInput { width:100%; padding:13px; font-size:16px; border:2px solid #667eea; border-radius:9px; background:#fff; color:#333; font-weight:600; text-align:center; outline:none; transition:all 0.3s; }
+        #driverNameInput:focus { border-color:#FFD700; box-shadow:0 0 12px rgba(255,215,0,0.4); }
+
+        #startButton { margin-top:24px; padding:16px 44px; font-size:22px; background:linear-gradient(135deg,#4CAF50,#45a049); color:#fff; border:none; border-radius:50px; cursor:pointer; box-shadow:0 8px 20px rgba(76,175,80,0.4); transition:all 0.3s; font-weight:bold; text-transform:uppercase; letter-spacing:2px; width: 100%; }
+        #startButton:hover { transform:translateY(-3px) scale(1.05); box-shadow:0 12px 30px rgba(76,175,80,0.6); }
+
+        .hidden { display:none !important; }
+
+        #gameOverScreen {
+            position:absolute; top:0; left:0; width:100%; height:100%;
+            background:linear-gradient(135deg,rgba(0,0,0,0.95),rgba(211,47,47,0.88));
+            display:flex; flex-direction:column; justify-content:center; align-items:center;
+            z-index:100; overflow-y:auto; padding:24px;
+        }
+        #gameOverScreen h1 { color:#ff5252; font-size:60px; margin-bottom:18px; text-shadow:0 0 30px rgba(255,82,82,0.8); animation:shake 0.5s; }
+        @keyframes shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-8px)} 75%{transform:translateX(8px)} }
+        #gameOverScreen h2 { color:#FFD700; font-size:26px; margin:15px 0 10px; }
+
+        .stats-display { background:rgba(255,255,255,0.08); padding:24px 40px; border-radius:18px; margin:18px 0; border:1px solid rgba(255,255,255,0.15); max-width:600px; width:100%; }
+        .stat-row { display:flex; justify-content:space-between; margin:12px 0; font-size:19px; color:#fff; }
+        .stat-value { font-weight:bold; color:#FFD700; }
+
+        #restartButton { margin-top:24px; padding:16px 44px; font-size:22px; background:linear-gradient(135deg,#2196F3,#1976D2); color:#fff; border:none; border-radius:50px; cursor:pointer; box-shadow:0 8px 20px rgba(33,150,243,0.4); transition:all 0.3s; font-weight:bold; text-transform:uppercase; letter-spacing:2px; }
+        #restartButton:hover { transform:translateY(-3px) scale(1.05); }
+        
+        /* Overlay to visually pulse the screen when fatigued */
+        #warningOverlay {
+            position:absolute; top:0; left:0; width:100%; height:100%;
+            background:rgba(255,0,0,0); pointer-events:none; transition:background 0.3s; z-index:5;
+        }
+        .warning-active { background:rgba(255,0,0,0.28) !important; animation:wPulse 0.5s infinite; }
+        @keyframes wPulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+    </style>
+</head>
+<body>
+<div id="gameContainer">
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+    <video id="videoElement" autoplay playsinline></video>
+    <div id="warningOverlay"></div>
+
+    <div id="statusPanel">
+        <div class="driver-info">🚗 <span id="driverNameDisplay">Unknown</span></div>
+        <div class="status-item">
+            <span class="status-label">👀 Biometric State</span>
+            <div class="badge-row">
+                <span id="eyeStatus" class="status-ok">EYES OPEN</span>
+                <span id="yawnStatus" class="status-ok">NO YAWN</span>
+            </div>
+        </div>
+        <div class="status-item">
+            <span class="status-label">⚠️ Fatigue Score</span>
+            <span id="fatigueScore" class="status-value">0 / 100</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">⏱️ Eyes Closed</span>
+            <span id="drowsinessTime" class="status-value">0.0s</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">📊 Alertness Drop</span>
+            <div id="drowsinessBar"><div id="drowsinessProgress"></div></div>
+        </div>
+        <div class="status-item">
+            <span class="status-label">🚗 Speed</span>
+            <span id="speedDisplay" class="status-value">0 km/h</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">📏 Distance</span>
+            <span id="distanceDisplay" class="status-value">0 m</span>
+        </div>
+        <div id="engineMessage">System Active</div>
+    </div>
+
+    <div id="blinkPanel">
+        <div class="blink-section-title">👁️ Biometric Telemetry</div>
+
+        <div style="margin-bottom:8px;">
+            <span id="wTab-morning" class="window-tab active">🌅 Early AM</span>
+            <span id="wTab-afternoon" class="window-tab">☀️ Post-lunch</span>
+            <span id="wTab-night" class="window-tab">🌙 Late Night</span>
+            <span id="wTab-regular" class="window-tab">🕐 Regular</span>
+        </div>
+
+        <div class="blink-metric-row">
+            <span class="blink-metric-label">Target Threshold (EAR)</span>
+            <span class="blink-metric-val" id="br-baseline">0.220</span>
+        </div>
+        <div class="blink-metric-row">
+            <span class="blink-metric-label">Live EAR (Eyes)</span>
+            <span class="blink-metric-val" id="br-live">—</span>
+        </div>
+        <div class="blink-metric-row">
+            <span class="blink-metric-label">Live MAR (Mouth)</span>
+            <span class="blink-metric-val" id="br-mar">—</span>
+        </div>
+        <div class="blink-metric-row">
+            <span class="blink-metric-label">Live Blinkrate / Yawns</span>
+            <span class="blink-metric-val" id="br-blinkrate">—</span>
+        </div>
+
+        <div style="margin:8px 0 4px;">
+            <div class="blink-section-title" style="margin-bottom:4px;">Calibration</div>
+            <div class="calibration-bar"><div class="calibration-fill" id="calFill"></div></div>
+            <div style="font-size:11px;color:rgba(255,255,255,0.45);margin-top:3px;" id="calStatus">Not yet calibrated</div>
+        </div>
+    </div>
+
+    <div id="gamepadHud">
+        <div class="gp-title">🎮 Controls</div>
+        <div class="gp-status">
+            <div class="gp-dot disconnected" id="gpDot"></div>
+            <span id="gpLabel">Keyboard / Gamepad</span>
+        </div>
+        <div style="margin-top:6px;font-size:11px;color:rgba(255,255,255,0.45);">Throttle (RT / Up)</div>
+        <div class="gp-bar-wrap"><div class="gp-bar" id="gpThrottle"></div></div>
+        <div style="margin-top:4px;font-size:11px;color:rgba(255,255,255,0.45);">Brake (LT / Down)</div>
+        <div class="gp-bar-wrap"><div class="gp-bar" id="gpBrake" style="background:linear-gradient(90deg,#f87171,#fca5a5);"></div></div>
+        <div style="margin-top:6px;font-size:11px;color:rgba(255,255,255,0.45);">Steer: Left / Right Arrows</div>
+    </div>
+
+    <div id="calibrationSplash">
+        <h2>🎯 Calibrating System</h2>
+        <div id="calWindowLabel">Regular Hours</div>
+        <p>Keep eyes open naturally. Establishing baseline metrics.</p>
+        <div id="calCountdown">30</div>
+        <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:4px;">seconds remaining</div>
+        <div class="calibration-bar" style="margin-top:10px;height:6px;"><div class="calibration-fill" id="calSplashFill"></div></div>
+    </div>
+
+    <div id="startScreen">
+        <h1>🏎️ HORIZON DRIVE SIMULATOR</h1>
+        <div class="subtitle">v3.4 — Full Biometric &amp; Yawn Engine</div>
+
+        <div class="name-input-container">
+            <label for="driverSelect">👤 Select Driver Profile</label>
+            <select id="driverSelect">
+                <option value="new">+ Create New Driver</option>
+            </select>
+            
+            <input type="text" id="driverNameInput" placeholder="Enter new driver name..." maxlength="30" autocomplete="name">
+            
+            <div id="driverStatsPreview">
+                <div class="ds-row"><span>Total Journeys:</span><span class="ds-val" id="ds-journeys">0</span></div>
+                <div class="ds-row"><span>Distance Logged:</span><span class="ds-val" id="ds-distance">0 km</span></div>
+                <div class="ds-row"><span>Total Alerts:</span><span class="ds-val" id="ds-alerts">0</span></div>
+                <div class="ds-rating" id="ds-rating">⭐⭐⭐⭐⭐</div>
+            </div>
+            
+            <button id="startButton">🎮 Start Simulator</button>
+            <button id="viewStatsBtn" class="secondary-btn">📊 View Driver Database</button>
+        </div>
+
+        <div class="feature-list">
+            <div class="feature-item"><span>🧠 Drowsiness Engine v3 — Tracks EAR (eyes), MAR (yawns), and blink-rate drop.</span></div>
+            <div class="feature-item"><span>🚨 Emergency Override — Forces car to shoulder safely at 80% fatigue or 1.5s closure.</span></div>
+            <div class="feature-item"><span>💾 Persistent Database — Saves safety ratings to local storage.</span></div>
+            <div class="feature-item"><span>🎮 Controls — Arrow Keys or Gamepad (RT/LT/Sticks).</span></div>
+        </div>
+    </div>
+
+    <div id="statsModal" class="hidden">
+        <div class="stats-modal-content">
+            <span id="closeStatsBtn">&times;</span>
+            <h2>📋 Guardian Drive Telemetry Records</h2>
+            <div id="statsGrid"></div>
+        </div>
+    </div>
+
+    <div id="gameOverScreen" class="hidden">
+        <h1>⚠️ SAFETY STOP INITIATED</h1>
+        <h2>📋 Driver Fatigue Report</h2>
+        <p style="font-size:24px;color:#FFD700;">Driver: <span id="finalDriverName">Unknown</span></p>
+
+        <div class="stats-display">
+            <div class="stat-row"><span>📏 Total Distance</span><span class="stat-value" id="finalDistance">0 m</span></div>
+            <div class="stat-row"><span>⏱️ Duration</span><span class="stat-value" id="finalDuration">0s</span></div>
+            <div class="stat-row"><span>🥱 Yawns Detected</span><span class="stat-value" id="finalYawns">0</span></div>
+            <div class="stat-row"><span>⚠️ Peak Fatigue Score</span><span class="stat-value" id="finalFatigue" style="color:#f87171">0</span></div>
+        </div>
+
+        <button id="restartButton">🔄 Reboot Simulator</button>
+    </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+//  1. DRIVER TELEMETRY DATABASE
+// ═══════════════════════════════════════════════════════════
+class DriverDatabase {
+    constructor() {
+        this.dbKey = 'guardianDrive_telemetry';
+        this.drivers = JSON.parse(localStorage.getItem(this.dbKey)) || {};
+    }
+    getDriver(name) { return this.drivers[name] || null; }
+    getAllDrivers() { return Object.keys(this.drivers); }
+
+    calculateRating(driverData) {
+        const { totalAlerts, totalDistance } = driverData;
+        const alertRate = totalDistance > 0 ? (totalAlerts / (totalDistance / 1000)) : 0; 
+        if (alertRate <= 1.5) return '⭐⭐⭐⭐⭐ (Excellent)';
+        if (alertRate <= 3.0) return '⭐⭐⭐⭐ (Good)';
+        if (alertRate <= 5.0) return '⭐⭐⭐ (Moderate Risk)';
+        if (alertRate <= 8.0) return '⭐⭐ (High Risk)';
+        return '⭐ (Critical Risk)';
+    }
+
+    saveJourney(name, distance, alerts) {
+        if (!this.drivers[name]) {
+            this.drivers[name] = { totalJourneys: 0, totalDistance: 0, totalAlerts: 0 };
+        }
+        let d = this.drivers[name];
+        d.totalJourneys += 1;
+        d.totalDistance += distance;
+        d.totalAlerts += alerts;
+        localStorage.setItem(this.dbKey, JSON.stringify(this.drivers));
+    }
+}
+const driverDB = new DriverDatabase();
+
+// ═══════════════════════════════════════════════════════════
+//  2. UI LOGIC (Dropdowns & Modals)
+// ═══════════════════════════════════════════════════════════
+const driverSelect = document.getElementById('driverSelect');
+const driverNameInput = document.getElementById('driverNameInput');
+const statsPreview = document.getElementById('driverStatsPreview');
+const statsModal = document.getElementById('statsModal');
+const viewStatsBtn = document.getElementById('viewStatsBtn');
+const closeStatsBtn = document.getElementById('closeStatsBtn');
+const statsGrid = document.getElementById('statsGrid');
+
+function populateDriverDropdown() {
+    while (driverSelect.options.length > 1) { driverSelect.remove(1); }
+    const drivers = driverDB.getAllDrivers();
+    drivers.forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name; opt.textContent = name;
+        driverSelect.appendChild(opt);
+    });
+}
+populateDriverDropdown();
+
+driverSelect.addEventListener('change', (e) => {
+    if (e.target.value === 'new') {
+        driverNameInput.style.display = 'block';
+        statsPreview.style.display = 'none';
+        driverNameInput.focus();
+    } else {
+        driverNameInput.style.display = 'none';
+        statsPreview.style.display = 'block';
+        const data = driverDB.getDriver(e.target.value);
+        document.getElementById('ds-journeys').textContent = data.totalJourneys;
+        document.getElementById('ds-distance').textContent = (data.totalDistance / 1000).toFixed(2) + ' km';
+        document.getElementById('ds-alerts').textContent = data.totalAlerts;
+        document.getElementById('ds-rating').textContent = driverDB.calculateRating(data);
+    }
+});
+
+viewStatsBtn.addEventListener('click', () => {
+    statsGrid.innerHTML = '';
+    const drivers = driverDB.getAllDrivers();
+    if (drivers.length === 0) {
+        statsGrid.innerHTML = '<p style="text-align:center; color:#888;">No driver telemetry recorded yet.</p>';
+    } else {
+        drivers.sort().forEach(name => {
+            const data = driverDB.getDriver(name);
+            const rating = driverDB.calculateRating(data);
+            const card = document.createElement('div');
+            card.className = 'driver-record-card';
+            card.innerHTML = `
+                <h3><span>👤 ${name}</span> <span>${rating}</span></h3>
+                <div class="ds-row"><span>Total Journeys:</span><span class="ds-val">${data.totalJourneys}</span></div>
+                <div class="ds-row"><span>Distance Logged:</span><span class="ds-val">${(data.totalDistance / 1000).toFixed(2)} km</span></div>
+                <div class="ds-row"><span>Total Safety Alerts:</span><span class="ds-val">${data.totalAlerts}</span></div>
+            `;
+            statsGrid.appendChild(card);
+        });
+    }
+    statsModal.classList.remove('hidden');
+});
+closeStatsBtn.addEventListener('click', () => { statsModal.classList.add('hidden'); });
+
+// ═══════════════════════════════════════════════════════════
+//  3. CORE DROWSINESS ENGINE (EAR + MAR + PROGRESSIVE THRESHOLDS)
+// ═══════════════════════════════════════════════════════════
+class DrowsinessEngine {
+    constructor() {
+        this.fatigueScore = 0;
+        this.peakFatigue = 0;
+        this.closureTimer = 0;
+        this.yawnTimer = 0;
+        this.yawnCount = 0;
+        this.inYawn = false;
+        this.isYawning = false;
+        this.alertCount = 0;
+        this.wasCritical = false;
+
+        this.EAR_THRESHOLD = 0.22;
+        this.MAR_THRESHOLD = 0.60;     // Mouth Aspect Ratio threshold for yawning
+        this.MIN_YAWN_TIME = 1.0;      // Must hold mouth open >= 1.0s to avoid speech false positives
+        this.MAX_CLOSURE_TIME = 1.5;   // Acute emergency (eyes closed)
+
+        // Progressive Fatigue Thresholds
+        this.THRESH_MODERATE = 40;
+        this.THRESH_MAIN = 60;
+        this.THRESH_REDUCE_SPEED = 70;
+        this.THRESH_EMERGENCY = 80;
+
+        this.baselineEAR = 0.30;
+    }
+
+    reset() {
+        this.fatigueScore = 0;
+        this.peakFatigue = 0;
+        this.closureTimer = 0;
+        this.yawnTimer = 0;
+        this.yawnCount = 0;
+        this.inYawn = false;
+        this.isYawning = false;
+        this.alertCount = 0;
+        this.wasCritical = false;
+    }
+
+    calibrate(averageEAR) {
+        this.baselineEAR = averageEAR;
+        // Clamp threshold to safe biometric bounds (0.18 - 0.26)
+        this.EAR_THRESHOLD = Math.max(0.18, Math.min(0.26, averageEAR * 0.75));
+    }
+
+    evaluateDriverState(ear, mar, blinkDrop, deltaTime) {
+        // Clamp deltaTime to avoid huge jumps during camera lag/tab switches
+        const dt = Math.min(Math.max(deltaTime, 0), 0.1);
+
+        // 1. Acute Eye Closure Check
+        if (ear < this.EAR_THRESHOLD) {
+            this.closureTimer += dt;
+        } else {
+            this.closureTimer = 0;
+        }
+
+        // 2. Yawn Detection Check (MAR)
+        if (mar > this.MAR_THRESHOLD) {
+            this.yawnTimer += dt;
+            if (this.yawnTimer >= this.MIN_YAWN_TIME) {
+                this.isYawning = true;
+                if (!this.inYawn) {
+                    this.inYawn = true;
+                    this.yawnCount++;
+                    // Instant fatigue spike per confirmed yawn
+                    this.fatigueScore += 15;
+                }
+            }
+        } else {
+            this.yawnTimer = 0;
+            this.inYawn = false;
+            this.isYawning = false;
+        }
+
+        // 3. Update Continuous Fatigue Score
+        this._updateFatigueScore(blinkDrop, dt);
+        this.peakFatigue = Math.max(this.peakFatigue, this.fatigueScore);
+
+        // 4. Evaluate EMERGENCY STOP (1.5s eye closure OR >= 80 fatigue)
+        if (this.closureTimer >= this.MAX_CLOSURE_TIME || this.fatigueScore >= this.THRESH_EMERGENCY) {
+            if (!this.wasCritical) { this.alertCount++; this.wasCritical = true; }
+            return this._triggerEmergencyOverride();
+        }
+
+        // 5. Evaluate Progressive Thresholds
+        if (this.fatigueScore >= this.THRESH_REDUCE_SPEED) {
+            if (!this.wasCritical) { this.alertCount++; this.wasCritical = true; }
+            return {
+                state: 'REDUCE_SPEED',
+                speedMultiplier: 0.6,
+                steerOverride: false,
+                message: 'SEVERE FATIGUE: Speed reduced for safety!',
+                soundAlarm: true
+            };
+        }
+
+        this.wasCritical = false;
+
+        if (this.fatigueScore >= this.THRESH_MAIN) {
+            return {
+                state: 'CRITICAL',
+                speedMultiplier: 1.0,
+                steerOverride: false,
+                message: 'DANGER: High Fatigue! Wake up!',
+                soundAlarm: true
+            };
+        }
+
+        if (this.fatigueScore >= this.THRESH_MODERATE || this.isYawning) {
+            return {
+                state: 'WARNING',
+                speedMultiplier: 1.0,
+                steerOverride: false,
+                message: this.isYawning
+                    ? '⚠️ YAWN DETECTED: Drowsiness signs increasing!'
+                    : 'Warning: Showing moderate signs of drowsiness.',
+                soundAlarm: false
+            };
+        }
+
+        return {
+            state: 'NORMAL',
+            speedMultiplier: 1.0,
+            steerOverride: false,
+            message: 'System Active: Driver Alert',
+            soundAlarm: false
+        };
+    }
+
+    _triggerEmergencyOverride() {
+        return {
+            state: 'EMERGENCY_STOP',
+            speedMultiplier: 0.0,
+            steerOverride: true,
+            message: '🚨 EMERGENCY: DRIVER UNRESPONSIVE. PULLING OVER. 🚨',
+            soundAlarm: true
+        };
+    }
+
+    _updateFatigueScore(blinkDrop, dt) {
+        // Single source of truth: use this.closureTimer already updated above
+        if (this.closureTimer > 0.35) {
+            // Prolonged eye closure builds fatigue rapidly
+            this.fatigueScore += 18 * dt;
+        } else if (this.isYawning) {
+            // Sustained yawning continues to add fatigue
+            this.fatigueScore += 10 * dt;
+        } else if (this.closureTimer === 0) {
+            // Gradual recovery when eyes are open and not yawning
+            this.fatigueScore -= 4 * dt;
+        }
+
+        // Penalize abnormal blink-rate drop
+        if (blinkDrop > 40) {
+            this.fatigueScore += 2.5 * dt;
+        }
+
+        // Clamp score between 0 and 100
+        this.fatigueScore = Math.max(0, Math.min(100, this.fatigueScore));
+    }
+}
+
+const engine = new DrowsinessEngine();
+let currentEngineState = engine.evaluateDriverState(0.30, 0.20, 0, 0);
+
+// ═══════════════════════════════════════════════════════════
+//  4. SESSION + GAME STATE
+// ═══════════════════════════════════════════════════════════
+const session = { driverName: '', startTime: null, endTime: null, lastFrameTime: 0 };
+
+const game = {
+    canvas: document.getElementById('gameCanvas'), ctx: null,
+    carX: 400, carY: 450, carWidth: 42, carHeight: 75,
+    speed: 0, baseSpeed: 50, distance: 0, roadOffset: 0,
+    isGameOver: false, isSafetyStop: false, 
+    obstacles: [], particles: [], clouds: [], lastObstacleSpawn: 0,
+    gpThrottle: 0, gpBrake: 0, gpSteer: 0,
+    gpConnected: false, useManualThrottle: false
+};
+game.ctx = game.canvas.getContext('2d');
+
+const eyeTracker = { faceMesh: null, camera: null, lastSoundPlay: 0 };
+
+const blinkRate = {
+    baselines: { morning: null, afternoon: null, night: null, regular: null },
+    isCalibrating: false, currentWindow: 'regular',
+    calBlinks: 0, blinkTimestamps: [], liveRate: null,
+    lastEAR: 0.30, inBlink: false, blinkCooldown: 0
+};
+
+const TIME_WINDOWS = {
+    morning:   { label: 'Early Morning (4–7 AM)',   hours: [4,5,6],     calDuration: 60 },
+    afternoon: { label: 'Post-lunch (1–3 PM)',      hours: [13,14],     calDuration: 60 },
+    night:     { label: 'Late Night (10 PM–2 AM)',  hours: [22,23,0,1], calDuration: 60 },
+    regular:   { label: 'Regular Hours',            hours: null,        calDuration: 30 }
+};
+
+const calibration = {
+    isActive: false, windowKey: 'regular', startTime: null, reqTime: 0,
+    sumEAR: 0, frameCount: 0, latestEAR: 0.30
+};
+
+function detectCurrentWindow() {
+    const h = new Date().getHours();
+    if ([4,5,6].includes(h)) return 'morning';
+    if ([13,14].includes(h)) return 'afternoon';
+    if ([22,23,0,1].includes(h)) return 'night';
+    return 'regular';
+}
+
+function startCalibration(windowKey) {
+    calibration.isActive = true;
+    calibration.windowKey = windowKey;
+    calibration.startTime = Date.now();
+    calibration.reqTime = TIME_WINDOWS[windowKey].calDuration * 1000;
+    calibration.sumEAR = 0;
+    calibration.frameCount = 0;
+    
+    blinkRate.currentWindow = windowKey;
+    blinkRate.calBlinks = 0;
+
+    const splash = document.getElementById('calibrationSplash');
+    document.getElementById('calWindowLabel').textContent = TIME_WINDOWS[windowKey].label;
+    document.getElementById('calStatus').textContent = 'Calibrating baseline...';
+    splash.style.display = 'block';
+
+    for (const k of ['morning','afternoon','night','regular']) {
+        const el = document.getElementById('wTab-' + k);
+        el.className = 'window-tab' + (k === windowKey ? ' active calibrating' : '');
+    }
+}
+
+function tickCalibration() {
+    if (!calibration.isActive) return;
+    const elapsed = Date.now() - calibration.startTime;
+    const remaining = Math.max(0, calibration.reqTime - elapsed);
+    const pct = Math.min(100, (elapsed / calibration.reqTime) * 100);
+
+    document.getElementById('calCountdown').textContent = Math.ceil(remaining / 1000);
+    document.getElementById('calFill').style.width = pct + '%';
+    document.getElementById('calSplashFill').style.width = pct + '%';
+
+    if (elapsed >= calibration.reqTime) {
+        calibration.isActive = false;
+        
+        // Finalize EAR Baseline (fallback to 0.29 if face was undetected during calibration)
+        const avgEar = calibration.frameCount > 10
+            ? (calibration.sumEAR / calibration.frameCount)
+            : 0.29;
+        engine.calibrate(avgEar);
+        
+        // Finalize Blink Baseline
+        const bpm = Math.max(Math.round(blinkRate.calBlinks / (calibration.reqTime / 60000)), 8);
+        blinkRate.baselines[blinkRate.currentWindow] = bpm;
+        
+        document.getElementById('calibrationSplash').style.display = 'none';
+        document.getElementById('calStatus').textContent = `✅ Baseline set. EAR: ${engine.EAR_THRESHOLD.toFixed(3)} | BPM: ${bpm}`;
+        document.getElementById('br-baseline').textContent = engine.EAR_THRESHOLD.toFixed(3);
+        
+        const el = document.getElementById('wTab-' + calibration.windowKey);
+        el.className = 'window-tab active';
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  5. GAMEPAD CONTROLS
+// ═══════════════════════════════════════════════════════════
+let gamepadIndex = null;
+const DEADZONE = 0.15;
+
+function applyDeadzone(value, deadzone) {
+    if (Math.abs(value) < deadzone) return 0;
+    return (Math.abs(value) - deadzone) / (1 - deadzone) * Math.sign(value);
+}
+
+window.addEventListener('gamepadconnected', (e) => {
+    gamepadIndex = e.gamepad.index;
+    game.gpConnected = true; game.useManualThrottle = true;
+    document.getElementById('gpDot').className = 'gp-dot connected';
+    document.getElementById('gpLabel').textContent = e.gamepad.id.slice(0, 22);
+});
+
+window.addEventListener('gamepaddisconnected', () => {
+    gamepadIndex = null; game.gpConnected = false; game.useManualThrottle = false;
+    document.getElementById('gpDot').className = 'gp-dot disconnected';
+    document.getElementById('gpLabel').textContent = 'Keyboard / Gamepad';
+    document.getElementById('gpThrottle').style.width = '0%';
+    document.getElementById('gpBrake').style.width = '0%';
+});
+
+function pollGamepad() {
+    if (gamepadIndex === null) return;
+    const gp = navigator.getGamepads()[gamepadIndex];
+    if (!gp) return;
+
+    let rawThrottle = 0, rawBrake = 0, rawSteer = 0;
+
+    if (gp.buttons[7] && gp.buttons[7].value > 0) rawThrottle = gp.buttons[7].value;
+    if (gp.buttons[6] && gp.buttons[6].value > 0) rawBrake = gp.buttons[6].value;
+
+    if (rawThrottle === 0 && gp.axes[5] !== undefined && gp.axes[5] > 0.05) rawThrottle = gp.axes[5];
+    if (rawBrake === 0 && gp.axes[2] !== undefined && gp.axes[2] > 0.05) rawBrake = gp.axes[2];
+
+    rawSteer = gp.axes[0] || 0;
+    if (gp.buttons[14]?.pressed) rawSteer = -1; 
+    if (gp.buttons[15]?.pressed) rawSteer =  1; 
+    if (gp.buttons[0]?.pressed) rawThrottle = 1;
+    if (gp.buttons[1]?.pressed || gp.buttons[2]?.pressed) rawBrake = 1;
+
+    game.gpThrottle = applyDeadzone(rawThrottle, DEADZONE);
+    game.gpBrake    = applyDeadzone(rawBrake, DEADZONE);
+    game.gpSteer    = applyDeadzone(rawSteer, DEADZONE);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  6. AUDIO & ENVIRONMENT RENDERING
+// ═══════════════════════════════════════════════════════════
+let audioCtx = null;
+function playSound(freq, dur, type = 'sine') {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.frequency.value = freq;
+    osc.type = type;
+    gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + dur);
+    osc.start(audioCtx.currentTime);
+    osc.stop(audioCtx.currentTime + dur);
+}
+function playWarningSound() { playSound(240, 0.25, 'square'); }
+function playCrashSound()   { playSound(100, 0.5, 'sawtooth'); }
+
+for (let i = 0; i < 5; i++) {
+    game.clouds.push({ x: Math.random()*800, y: Math.random()*200, width: 60+Math.random()*40, speed: 0.2+Math.random()*0.3 });
+}
+
+function updateParticles() {
+    for (let i = game.particles.length-1; i >= 0; i--) {
+        const p = game.particles[i]; p.x+=p.vx; p.y+=p.vy; p.vy+=0.3; p.life-=0.02;
+        if (p.life<=0) game.particles.splice(i,1);
+    }
+}
+function drawParticles() {
+    game.particles.forEach(p => { game.ctx.globalAlpha=p.life; game.ctx.fillStyle=p.color; game.ctx.beginPath(); game.ctx.arc(p.x,p.y,3,0,Math.PI*2); game.ctx.fill(); });
+    game.ctx.globalAlpha=1;
+}
+
+function spawnObstacle() {
+    const now = Date.now();
+    if (now - game.lastObstacleSpawn > 1200) {
+        const lanes = [250,400,550], types = ['cone','barrel','rock'];
+        game.obstacles.push({ x: lanes[Math.floor(Math.random()*3)], y:-50, width:40, height:40, type: types[Math.floor(Math.random()*3)] });
+        game.lastObstacleSpawn = now;
+    }
+}
+
+function updateObstacles() {
+    const spd = game.speed / 3;
+    for (let i = game.obstacles.length - 1; i >= 0; i--) {
+        const obs = game.obstacles[i]; 
+        obs.y += spd;
+        if (obs.y > 650) {
+            game.obstacles.splice(i, 1);
+        }
+    }
+}
+
+function drawRoad() {
+    const ctx = game.ctx;
+    const sky = ctx.createLinearGradient(0,0,0,300); sky.addColorStop(0,'#4facfe'); sky.addColorStop(1,'#00f2fe');
+    ctx.fillStyle = sky; ctx.fillRect(0,0,800,300);
+    
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    game.clouds.forEach(c => {
+        ctx.beginPath(); ctx.arc(c.x,c.y,c.width/2,0,Math.PI*2); ctx.arc(c.x+c.width/2,c.y,c.width/3,0,Math.PI*2); ctx.arc(c.x-c.width/2,c.y,c.width/3,0,Math.PI*2); ctx.fill();
+        c.x -= c.speed; if (c.x < -c.width) c.x = 850;
+    });
+    
+    ctx.fillStyle='#FFD700'; ctx.beginPath(); ctx.arc(700,80,40,0,Math.PI*2); ctx.fill();
+    
+    const grass = ctx.createLinearGradient(0,300,0,600); grass.addColorStop(0,'#4ade80'); grass.addColorStop(1,'#166534');
+    ctx.fillStyle = grass; ctx.fillRect(0,300,800,300);
+    
+    ctx.fillStyle = '#555'; ctx.fillRect(200,0,400,600);
+    ctx.fillStyle = '#FFF'; ctx.fillRect(195,0,10,600); ctx.fillRect(595,0,10,600);
+    ctx.fillStyle = '#FFD700';
+    for (let i=-40; i<600; i+=70) ctx.fillRect(395, (i+game.roadOffset)%670, 10, 40);
+}
+
+function drawObstacles() {
+    const ctx = game.ctx;
+    game.obstacles.forEach(obs => {
+        if (obs.type === 'cone') { ctx.fillStyle='#FF6600'; ctx.beginPath(); ctx.moveTo(obs.x,obs.y); ctx.lineTo(obs.x-20,obs.y+40); ctx.lineTo(obs.x+20,obs.y+40); ctx.closePath(); ctx.fill(); } 
+        else { ctx.fillStyle='#8B4513'; ctx.fillRect(obs.x-20,obs.y,40,40); }
+    });
+}
+
+function drawCar() {
+    const ctx = game.ctx;
+    ctx.fillStyle='rgba(0,0,0,0.3)'; ctx.ellipse(game.carX,game.carY+35,30,10,0,0,Math.PI*2); ctx.fill();
+    const grad = ctx.createLinearGradient(game.carX-25,game.carY-50,game.carX+25,game.carY+30);
+    grad.addColorStop(0,'#FF0000'); grad.addColorStop(1,'#CC0000');
+    ctx.fillStyle = grad; 
+    
+    const w = game.carWidth; const h = game.carHeight;
+    ctx.fillRect(game.carX - w/2, game.carY - h/2 - 10, w, h);
+    ctx.fillStyle='#990000'; ctx.fillRect(game.carX-w/2+5,game.carY-h/2,w-10,h/2-10);
+    ctx.fillStyle='rgba(135,206,235,0.7)'; ctx.fillRect(game.carX-w/2+10,game.carY-h/2+5,w-20,20);
+    ctx.fillStyle='#000'; 
+    ctx.fillRect(game.carX-w/2-5,game.carY-h/2,10,20); ctx.fillRect(game.carX+w/2-5,game.carY-h/2,10,20); 
+    ctx.fillRect(game.carX-w/2-5,game.carY+h/2-30,10,20); ctx.fillRect(game.carX+w/2-5,game.carY+h/2-30,10,20);
+    
+    if (currentEngineState.state === 'CRITICAL' || currentEngineState.state === 'EMERGENCY_STOP' || currentEngineState.state === 'REDUCE_SPEED') {
+        ctx.fillStyle='rgba(239,68,68,0.35)'; ctx.fillRect(game.carX-w/2, game.carY-h/2-10, w, h);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  7. MAIN LOOP (UI & STATE MAPPING)
+// ═══════════════════════════════════════════════════════════
+function updateGame() {
+    if (game.isGameOver) return;
+    pollGamepad();
+    tickCalibration();
+
+    document.getElementById('gpThrottle').style.width = Math.round(game.gpThrottle * 100) + '%';
+    document.getElementById('gpBrake').style.width    = Math.round(game.gpBrake    * 100) + '%';
+
+    // Emergency Pull-Over Override
+    if (game.isSafetyStop || currentEngineState.state === 'EMERGENCY_STOP' || currentEngineState.steerOverride) {
+        game.speed = Math.max(0, game.speed - 2.5);
+        const targetX = 560; // Safe right shoulder
+        if (game.carX < targetX) game.carX = Math.min(game.carX + 2.5, targetX);
+        document.getElementById('speedDisplay').textContent = Math.round(game.speed) + ' km/h';
+        document.getElementById('fatigueScore').textContent = `${Math.round(engine.fatigueScore)} / 100`;
+        document.getElementById('engineMessage').textContent = currentEngineState.message;
+        document.getElementById('engineMessage').className = 'msg-emergency';
+        document.getElementById('warningOverlay').classList.add('warning-active');
+        if (game.speed === 0) gameOver();
+        return;
+    }
+
+    let targetSpeed = game.baseSpeed;
+    if (game.useManualThrottle) targetSpeed += (game.gpThrottle * 150);
+    
+    // Applies the 40% speed penalty if fatigue hits 70%
+    targetSpeed *= currentEngineState.speedMultiplier;
+
+    if (game.speed < targetSpeed) game.speed = Math.min(game.speed + 0.25, targetSpeed); 
+    else game.speed = Math.max(game.baseSpeed * currentEngineState.speedMultiplier, game.speed - 1);
+
+    if (game.gpBrake > 0) game.speed = Math.max(0, game.speed - (game.gpBrake * 10));
+
+    game.distance += game.speed / 60;
+    game.roadOffset += game.speed / 10;
+    if (game.roadOffset > 600) game.roadOffset = 0;
+
+    if (Math.abs(game.gpSteer) > 0 && game.useManualThrottle) {
+        game.carX += game.gpSteer * 5;
+        game.carX = Math.max(215, Math.min(585, game.carX));
+    }
+
+    spawnObstacle(); updateObstacles(); updateParticles();
+
+    // ─── UI Updates & Color Mapping ───
+    document.getElementById('speedDisplay').textContent = Math.round(game.speed) + ' km/h';
+    document.getElementById('distanceDisplay').textContent = Math.round(game.distance) + ' m';
+    document.getElementById('fatigueScore').textContent = `${Math.round(engine.fatigueScore)} / 100`;
+    
+    let color = '#4ade80';
+    let msgClass = '';
+    
+    if (currentEngineState.state === 'WARNING') { color = '#facc15'; msgClass = 'msg-warning'; }
+    else if (currentEngineState.state === 'CRITICAL') { color = '#fb923c'; msgClass = 'msg-warning'; }
+    else if (currentEngineState.state === 'REDUCE_SPEED') { color = '#f87171'; msgClass = 'msg-critical'; }
+    else if (currentEngineState.state === 'EMERGENCY_STOP') { color = '#dc2626'; msgClass = 'msg-emergency'; }
+    
+    document.getElementById('fatigueScore').style.color = color;
+    
+    const msgEl = document.getElementById('engineMessage');
+    msgEl.textContent = currentEngineState.message;
+    msgEl.className = msgClass;
+    
+    const eyeEl = document.getElementById('eyeStatus');
+    eyeEl.textContent = engine.closureTimer > 0 ? 'EYES CLOSED' : 'EYES OPEN';
+    eyeEl.className = engine.closureTimer > 0 ? 'status-alert' : 'status-ok';
+
+    const yawnEl = document.getElementById('yawnStatus');
+    yawnEl.textContent = engine.isYawning ? 'YAWNING!' : 'NO YAWN';
+    yawnEl.className = engine.isYawning ? 'status-alert' : 'status-ok';
+
+    document.getElementById('drowsinessTime').textContent = engine.closureTimer.toFixed(1) + 's';
+    
+    const progEl = document.getElementById('drowsinessProgress');
+    progEl.style.width = Math.min(engine.fatigueScore, 100) + '%';
+    
+    if (engine.closureTimer >= engine.MAX_CLOSURE_TIME || engine.fatigueScore >= engine.THRESH_MAIN) {
+        document.getElementById('warningOverlay').classList.add('warning-active');
+    } else {
+        document.getElementById('warningOverlay').classList.remove('warning-active');
+    }
+}
+
+function gameOver() {
+    game.isGameOver = true; session.endTime = Date.now(); playCrashSound();
+    const dur = ((session.endTime - session.startTime)/1000).toFixed(1);
+    
+    driverDB.saveJourney(session.driverName, game.distance, engine.alertCount);
+    populateDriverDropdown();
+
+    document.getElementById('finalDriverName').textContent = session.driverName;
+    document.getElementById('finalDistance').textContent = Math.round(game.distance) + ' m';
+    document.getElementById('finalDuration').textContent = dur + 's';
+    document.getElementById('finalYawns').textContent = engine.yawnCount;
+    document.getElementById('finalFatigue').textContent = Math.round(engine.peakFatigue);
+
+    document.getElementById('gameOverScreen').classList.remove('hidden');
+}
+
+function resetGame() {
+    Object.assign(game, {
+        carX: 400, carY: 450, speed: 0, distance: 0, roadOffset: 0,
+        isGameOver: false, isSafetyStop: false, obstacles: [], particles: [],
+        lastObstacleSpawn: 0, gpThrottle: 0, gpBrake: 0, gpSteer: 0
+    });
+    session.startTime = Date.now();
+    session.lastFrameTime = performance.now();
+    
+    engine.reset();
+    currentEngineState = engine.evaluateDriverState(0.30, 0.20, 0, 0);
+    
+    blinkRate.blinkTimestamps = [];
+    blinkRate.liveRate = null;
+    
+    document.getElementById('warningOverlay').classList.remove('warning-active');
+    document.getElementById('gameOverScreen').classList.add('hidden');
+    startCalibration(detectCurrentWindow());
+}
+
+function gameLoop() {
+    game.ctx.clearRect(0,0,800,600);
+    drawRoad(); drawObstacles(); drawCar(); drawParticles();
+    updateGame();
+    requestAnimationFrame(gameLoop);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  8. MEDIAPIPE FACE MESH (EAR + MAR YAWN TRACKER)
+// ═══════════════════════════════════════════════════════════
+function setupFaceTracking() {
+    eyeTracker.faceMesh = new FaceMesh({
+        locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/${f}`
+    });
+    eyeTracker.faceMesh.setOptions({
+        maxNumFaces: 1,
+        refineLandmarks: true,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+    });
+    eyeTracker.faceMesh.onResults(onFaceResults);
+}
+
+function onFaceResults(results) {
+    const now = performance.now();
+    const deltaTime = (now - session.lastFrameTime) / 1000;
+    session.lastFrameTime = now;
+
+    if (!results.multiFaceLandmarks?.length) {
+        document.getElementById('engineMessage').textContent = '⚠️ Face not detected — check lighting';
+        return;
+    }
+
+    const lms = results.multiFaceLandmarks[0];
+    const dst = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+
+    // 1. Eye Aspect Ratio (EAR)
+    const calcEAR = (idx) => {
+        const p = idx.map(i => lms[i]);
+        return (dst(p[1], p[5]) + dst(p[2], p[4])) / (2 * dst(p[0], p[3]));
+    };
+    const eL = calcEAR([362, 385, 387, 263, 373, 380]);
+    const eR = calcEAR([33, 160, 158, 133, 153, 144]);
+    const ear = (eL + eR) / 2;
+    calibration.latestEAR = ear;
+
+    // 2. Mouth Aspect Ratio (MAR) for Yawn Detection
+    // Inner lip landmarks: 13 (top), 14 (bottom), 78 (left corner), 308 (right corner)
+    // Plus 82/87 & 312/317 for multi-point vertical accuracy
+    const mouthWidth = dst(lms[78], lms[308]);
+    const mouthHeight = (dst(lms[13], lms[14]) + dst(lms[82], lms[87]) + dst(lms[312], lms[317])) / 3;
+    const mar = mouthWidth > 0 ? (mouthHeight / mouthWidth) : 0;
+
+    // 3. Dynamic Blink Tracker (uses calibrated EAR_THRESHOLD instead of hardcoded 0.25)
+    const blinkThresh = engine.EAR_THRESHOLD;
+    if (ear < blinkThresh && blinkRate.lastEAR >= blinkThresh && !blinkRate.inBlink && Date.now() > blinkRate.blinkCooldown) { 
+        blinkRate.inBlink = true; 
+    }
+    if (ear >= blinkThresh && blinkRate.inBlink) { 
+        blinkRate.inBlink = false; 
+        blinkRate.blinkCooldown = Date.now() + 200; 
+        
+        if (calibration.isActive) {
+            blinkRate.calBlinks++;
+        }
+        blinkRate.blinkTimestamps.push(Date.now());
+    }
+    blinkRate.blinkTimestamps = blinkRate.blinkTimestamps.filter(t => t > Date.now() - 60000);
+    blinkRate.lastEAR = ear;
+
+    if (calibration.isActive) {
+        calibration.frameCount++;
+        calibration.sumEAR += ear;
+    }
+
+    // 4. Calculate Live Blink Rate
+    const windowAge = Math.min((Date.now() - (session.startTime || Date.now())) / 1000, 60);
+    if (windowAge >= 10 && !calibration.isActive) { 
+        blinkRate.liveRate = Math.round((blinkRate.blinkTimestamps.length / windowAge) * 60);
+    }
+
+    let blinkDrop = 0;
+    const baseline = blinkRate.baselines[blinkRate.currentWindow];
+    if (baseline !== null && blinkRate.liveRate !== null) {
+        blinkDrop = Math.max(0, Math.round((baseline - blinkRate.liveRate) / baseline * 100));
+    }
+
+    // 5. Evaluate Combined Biometrics in Drowsiness Engine
+    currentEngineState = engine.evaluateDriverState(ear, mar, blinkDrop, deltaTime);
+    
+    document.getElementById('br-live').textContent = ear.toFixed(3);
+    document.getElementById('br-mar').textContent = mar.toFixed(3);
+    const rateStr = blinkRate.liveRate !== null ? `${blinkRate.liveRate} bpm` : 'Tracking...';
+    document.getElementById('br-blinkrate').textContent = `${rateStr} / ${engine.yawnCount}Y`;
+
+    if (currentEngineState.soundAlarm && now - eyeTracker.lastSoundPlay > 1000) {
+        playWarningSound();
+        eyeTracker.lastSoundPlay = now;
+    }
+}
+
+async function startCamera() {
+    const video = document.getElementById('videoElement');
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { width:640, height:480, facingMode:'user' } });
+        video.srcObject = stream;
+        eyeTracker.camera = new Camera(video, {
+            onFrame: async () => { await eyeTracker.faceMesh.send({ image: video }); },
+            width: 640,
+            height: 480
+        });
+        await eyeTracker.camera.start();
+        return true;
+    } catch (err) {
+        alert('Camera access required for drowsiness tracking!');
+        return false;
+    }
+}
+
+document.getElementById('startButton').addEventListener('click', async function() {
+    let name = '';
+    if (driverSelect.value === 'new') {
+        name = driverNameInput.value.trim();
+        if (!name) { alert('Please enter your name!'); return; }
+    } else {
+        name = driverSelect.value;
+    }
+    
+    session.driverName = name;
+    document.getElementById('driverNameDisplay').textContent = name;
+    this.disabled = true;
+    this.textContent = 'Initializing camera…';
+    setupFaceTracking();
+    if (await startCamera()) {
+        session.startTime = Date.now();
+        session.lastFrameTime = performance.now();
+        document.getElementById('startScreen').classList.add('hidden');
+        startCalibration(detectCurrentWindow());
+        gameLoop();
+    } else {
+        this.disabled = false;
+        this.textContent = '🎮 Start Simulator';
+    }
+});
+
+document.getElementById('restartButton').addEventListener('click', resetGame);
+
+document.addEventListener('keydown', e => {
+    if (game.isSafetyStop || currentEngineState.state === 'EMERGENCY_STOP' || currentEngineState.steerOverride || game.isGameOver) return;
+    if (e.key === 'ArrowLeft' && game.carX > 250) game.carX -= 150;
+    if (e.key === 'ArrowRight' && game.carX < 550) game.carX += 150;
+    if (e.key === 'ArrowUp') {
+        game.useManualThrottle = true;
+        game.gpThrottle = 1;
+    }
+    if (e.key === 'ArrowDown') {
+        game.gpBrake = 1;
+    }
+});
+
+document.addEventListener('keyup', e => {
+    if (e.key === 'ArrowUp') {
+        game.gpThrottle = 0;
+        if (!game.gpConnected) game.useManualThrottle = false;
+    }
+    if (e.key === 'ArrowDown') {
+        game.gpBrake = 0;
+    }
+});
+</script>
+</body>
+</html>
